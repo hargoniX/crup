@@ -15,6 +15,14 @@ def Lean.HashSet.pop! [BEq α] [Hashable α] [Inhabited α] (set : HashSet α) :
 abbrev Clause := Array Int
 -- Since we frequently add and remove elements to the list of clauses this is a List and not an Array
 abbrev Clauses := List Clause
+
+
+/-
+TODO: Consider designing a custom datastructure as follows: instead of a list of integers
+we use an RBMap Int UnitType where UnitType is either `pos`, `neg` or `both`. This should
+allow us to easily detect inconsistent unit propagation sets. It is however unclear
+to me if this algorithm would be faster than what we have now, let's try it out!
+-/
 -- The unit clauses only get added to and we don't care about previous versions
 abbrev UnitClauses := List Int
 
@@ -169,6 +177,16 @@ where
       else
         go clauses newUnits (clause :: remainder)
 
+def List.containsBounded [BEq α] (xs : List α) (a : α) (bound : Nat) : Bool :=
+  match xs, bound with
+  | [], _ => false
+  | _, 0 => false
+  | x :: xs, n + 1 =>
+    if x == a then
+      true
+    else
+      List.containsBounded xs x n
+
 /--
 Derive False by running `unitPropagate` on a list of `Clauses`.
 -/
@@ -184,10 +202,14 @@ where
       withAdditionalIndent 4 do
         log s!"Working on unit clause: {newUnit} next"
         log s!"Already processed unit clauses: {processedUnits.toList}"
-        if processedUnits.contains (-newUnit) then
+        -- The procedure is still complete if we do not check the workList here,
+        -- as all elements eventually end up to processedUnits. Since the worklist
+        -- can in theory end up containing the vast majority of literals we limit
+        -- the search to a (somewhat arbitrary) constant in order to avoid searching
+        -- a large linked list over and over again.
+        if processedUnits.contains (-newUnit) || workList.containsBounded (-newUnit) 64 then
           log "Derived inconsistency"
           return true
-
         let (additionalUnits, clauses) ← unitPropagate newUnit clauses
         log s!"Derived additional units: {additionalUnits}"
         let workList := additionalUnits ++ workList
