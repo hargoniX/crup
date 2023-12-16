@@ -16,16 +16,8 @@ abbrev Clause := Array Int
 -- Since we frequently add and remove elements to the list of clauses this is a List and not an Array
 abbrev Clauses := List Clause
 
-
-/-
-TODO: Consider designing a custom datastructure as follows: instead of a list of integers
-we use an RBMap Int UnitType where UnitType is either `pos`, `neg` or `both`. This should
-allow us to easily detect inconsistent unit propagation sets. It is however unclear
-to me if this algorithm would be faster than what we have now, let's try it out!
--/
 -- The unit clauses only get added to and we don't care about previous versions
 abbrev UnitClauses := List Int
-
 
 def Clause.toList (c : Clause) : List Int := Array.toList c
 def Clauses.toList (cs : Clauses) : List (List Int) := cs.map Clause.toList
@@ -88,7 +80,7 @@ def parseRup : Parsec Clauses := do
 
 structure LogCfg where
   indent : Nat
-  active : Bool
+  level : Nat
 
 abbrev LogM (α) := ReaderT LogCfg IO α
 
@@ -97,9 +89,9 @@ def withAdditionalIndent (additional : Nat) (x : LogM α) : LogM α :=
   withReader (fun cfg => { cfg with indent := cfg.indent + additional }) x
 
 @[macro_inline]
-def log (x : String) : LogM Unit := do
+def log (x : String) (level : Nat := 1) : LogM Unit := do
   let cfg ← read
-  if cfg.active then
+  if level >= cfg.level then
     let level := cfg.indent
     let pref := level.fold (init := "") (fun _ s => s.push ' ')
     IO.println s!"{pref}{x}"
@@ -191,8 +183,9 @@ def List.containsBounded [BEq α] (xs : List α) (a : α) (bound : Nat) : Bool :
 Derive False by running `unitPropagate` on a list of `Clauses`.
 -/
 partial def deriveFalse (clauses : Clauses) (initialAssumptions : UnitClauses := []) : LogM Bool := do
-  log s!"Attempting to derive inconsistency for {clauses.toList}, using unit clauses {initialAssumptions}"
   let (initialUnits, clauses) := partitionUnitClauses clauses
+  let units := initialAssumptions ++ initialUnits
+  log s!"Attempting to derive inconsistency for {clauses.toList}, using unit clauses {units }"
   go {} (initialAssumptions ++ initialUnits) clauses
 where
   go (processedUnits : HashSet Int) (workList : UnitClauses) (clauses : Clauses) : LogM Bool := do
@@ -201,12 +194,15 @@ where
     | newUnit :: workList =>
       withAdditionalIndent 4 do
         log s!"Working on unit clause: {newUnit} next"
-        log s!"Already processed unit clauses: {processedUnits.toList}"
+        log s!"Known unit clauses: {processedUnits.toList}, {workList}"
         -- The procedure is still complete if we do not check the workList here,
         -- as all elements eventually end up to processedUnits. Since the worklist
         -- can in theory end up containing the vast majority of literals we limit
         -- the search to a (somewhat arbitrary) constant in order to avoid searching
         -- a large linked list over and over again.
+        -- Note that this doesn't catch all inconsitencies, even if the workList is bounded at 64 elements.
+        -- This is because we do not look for inconsistencies in the worklist itself.
+        -- That check only ever fires once we pull the first inconsitent element from the worklist.
         if processedUnits.contains (-newUnit) || workList.containsBounded (-newUnit) 64 then
           log "Derived inconsistency"
           return true
@@ -237,7 +233,7 @@ partial def verify (known : Clauses) (todo : Clauses) : LogM RupResult := do
     return .success
   | new :: remaining =>
     if new.size == 0 then
-      log s!"Proving the final step of this UNSAT proof"
+      log (level := 2) s!"Proving the final step of this UNSAT proof"
       -- We just met an empty clause as a goal. This means we are verifying an UNSAT
       -- proof and need to derive false from our current knowledge to finish.
       if ← withAdditionalIndent 4 do deriveFalse known then
@@ -245,13 +241,15 @@ partial def verify (known : Clauses) (todo : Clauses) : LogM RupResult := do
       else
         return .failure
     else
-      log s!"Proving next goal: {new.toList}, based on {known.toList}"
+      log (level := 2) s!"Proving next goal: {new.toList}"
+      log s!"Using current knowledge: {known.toList} "
       -- We are still along the lines of verifying some proof chain.
       -- Attempt to derive false by adding the negation of the current RUP goal
       -- to the list of known terms and running unit propagation to derive false.
       -- If this succeeds we have proven the goal and can add it to our list of known
       -- facts. Otherwise we are stuck and give up.
       if ← withAdditionalIndent 4 do deriveFalse known new.negation then
+        log (level := 2) s!"Clause proven redudant: {new.toList}"
         verify (new :: known) remaining
       else
         return .stuck
@@ -269,12 +267,13 @@ def main (args : List String) : IO UInt32 := do
     let cfg ←
       if args.length == 3 then
         let additionalArg := args[2]!
-        if additionalArg == "nolog" then
-          pure { indent := 0, active := false }
-        else
-          throw <| .userError s!"Unknown argument: {additionalArg}"
+        match additionalArg.toNat? with
+        | none =>
+          throw <| .userError s!"The third argument must be a Nat log level but was: {additionalArg}"
+        | some level =>
+          pure { indent := 0, level := level }
       else
-          pure { indent := 0, active := true }
+          pure { indent := 0, level := 1 }
     let result ← verify dimacs rup |>.run cfg
     match result with
     | .success =>

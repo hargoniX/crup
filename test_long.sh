@@ -2,7 +2,7 @@
 
 lake build || exit 1
 
-time lake exe crup ./examples/bf0432-007.cnf ./examples/bf0432-007_proof.rup nolog
+time lake exe crup ./examples/bf0432-007.cnf ./examples/bf0432-007_proof.rup 2
 if [ $? -ne 0 ]; then
         exit 1;
 fi
