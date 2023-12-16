@@ -1,28 +1,23 @@
 import Lean.Data.Parsec
-import Lean.Data.PersistentHashSet
 import Lean.Data.HashSet
 open Lean Parsec
 
 /--
-Pop an element from a `Lean.PersistentHashSet`, this function is sadly not implemented in core (yet).
+Pop an element from a `Lean.HashSet`, this function is sadly not implemented in core (yet).
 -/
-def Lean.PersistentHashSet.pop! [BEq α] [Hashable α] [Inhabited α] (set : PersistentHashSet α) : α :=
+def Lean.HashSet.pop! [BEq α] [Hashable α] [Inhabited α] (set : HashSet α) : α :=
   -- There is sadly no pop so we do a little hack. The idea here is that we only ever call this function
   -- on singleton sets anyways so it doesn't matter that we iterate over the entire set with fold
   set.fold (init := none) (fun _ lit => some lit) |>.get!
 
--- We use a PersistentHashSet of clauses because we often remove items during unit propagation
--- but want to keep the original around for later use.
--- Instead of writing a cooler unit propagation algo we rely on persistent datastructures
--- to give us at least some performance boost.
-abbrev Clause := PersistentHashSet Int
+abbrev Clause := HashSet Int
 -- Since we frequently add and remove elements to the list of clauses this is a List and not an Array
 abbrev Clauses := List Clause
--- The unit clauses only get added to and we don't care about previous versions -> no persistent hashset.
+-- The unit clauses only get added to and we don't care about previous versions
 abbrev UnitClauses := List Int
 
 
-def Clause.toList (c : Clause) : List Int := c.set.toList.map Prod.fst
+def Clause.toList (c : Clause) : List Int := HashSet.toList c
 def Clauses.toList (cs : Clauses) : List (List Int) := cs.map Clause.toList
 
 def parseLit : Parsec Int := do
@@ -42,7 +37,7 @@ def parseLit : Parsec Int := do
 partial def parseClause : Parsec Clause := do
   go {}
 where
-  go (clause : PersistentHashSet Int) : Parsec Clause := do
+  go (clause : HashSet Int) : Parsec Clause := do
     let nextLit ← parseLit
     if nextLit == 0 then
       ws
@@ -166,7 +161,6 @@ def unitPropagate (unit : Int) (clauses : Clauses) : LogM (UnitClauses × Clause
       remainder := clause :: remainder
   return (newUnits, remainder)
 
-set_option trace.compiler.ir.result true in
 /--
 Derive False by running `unitPropagate` on a list of `Clauses`.
 -/
