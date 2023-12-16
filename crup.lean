@@ -81,15 +81,23 @@ def parseRup : Parsec Clauses := do
   eof
   return ret
 
-abbrev LogM (α) := ReaderT Nat IO α
+structure LogCfg where
+  indent : Nat
+  active : Bool
 
+abbrev LogM (α) := ReaderT LogCfg IO α
+
+@[inline]
 def withAdditionalIndent (additional : Nat) (x : LogM α) : LogM α :=
-  withReader (· + additional) x
+  withReader (fun cfg => { cfg with indent := cfg.indent + additional }) x
 
+@[inline]
 def log (x : String) : LogM Unit := do
-  let level ← read
-  let pref := level.fold (init := "") (fun _ s => s.push ' ')
-  IO.println s!"{pref}{x}"
+  let cfg ← read
+  if cfg.active then
+    let level := cfg.indent
+    let pref := level.fold (init := "") (fun _ s => s.push ' ')
+    IO.println s!"{pref}{x}"
 
 structure RupState where
   known : Clauses
@@ -158,6 +166,7 @@ def unitPropagate (unit : Int) (clauses : Clauses) : LogM (UnitClauses × Clause
       remainder := clause :: remainder
   return (newUnits, remainder)
 
+set_option trace.compiler.ir.result true in
 /--
 Derive False by running `unitPropagate` on a list of `Clauses`.
 -/
@@ -224,15 +233,24 @@ partial def verify (known : Clauses) (todo : Clauses) : LogM RupResult := do
 
 def main (args : List String) : IO UInt32 := do
   -- Verification stonks
-  if h1 : args.length == 2 then
+  if args.length >= 2 then
     IO.println "Reading input files..."
-    let dimacsInput ← IO.FS.readFile (args[0]'(by simp_all_arith))
-    let rupInput ← IO.FS.readFile (args[1]'(by simp_all_arith))
+    let dimacsInput ← IO.FS.readFile args[0]!
+    let rupInput ← IO.FS.readFile args[1]!
     IO.println "Parsing input files..."
     let dimacs ← IO.ofExcept <| parseDimacs.run dimacsInput
     let rup ← IO.ofExcept <| parseRup.run rupInput
     IO.println "Checking proof..."
-    let result ← verify dimacs rup |>.run 0
+    let cfg ←
+      if args.length == 3 then
+        let additionalArg := args[2]!
+        if additionalArg == "nolog" then
+          pure { indent := 0, active := false }
+        else
+          throw <| .userError s!"Unknown argument: {additionalArg}"
+      else
+          pure { indent := 0, active := true }
+    let result ← verify dimacs rup |>.run cfg
     match result with
     | .success =>
       IO.println "Proof correct!"
