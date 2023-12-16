@@ -20,6 +20,10 @@ Given a DIMACS file `input.cnf` and a RUP file `proof.rup` you can verify it lik
 ```
 $ lake exe crup input.cnf proof.rup
 ```
+Additionally you can disable the logging output with:
+```
+$ lake exe crup input.cnf proof.rup nolog
+```
 If you wish to run the binary directly you can find it in `.lake/build/bin`.
 Note that I didn't put a particular amount of effort into supporting DIMACS or RUP files
 in general. The tool expects DIMACS files to only contain the `p cnf` header line
