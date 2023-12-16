@@ -173,7 +173,7 @@ where
 Derive False by running `unitPropagate` on a list of `Clauses`.
 -/
 partial def deriveFalse (clauses : Clauses) (initialAssumptions : UnitClauses := []) : LogM Bool := do
-  log s!"Attempting to derive inconsistenty for {clauses.toList}"
+  log s!"Attempting to derive inconsistency for {clauses.toList}, using unit clauses {initialAssumptions}"
   let (initialUnits, clauses) := partitionUnitClauses clauses
   go {} (initialAssumptions ++ initialUnits) clauses
 where
@@ -189,11 +189,12 @@ where
           return true
 
         let (additionalUnits, clauses) ← unitPropagate newUnit clauses
-        log s!"Derived additional units {additionalUnits}"
-        log s!"Remaining clauses: {clauses.toList}"
+        log s!"Derived additional units: {additionalUnits}"
+        let workList := additionalUnits ++ workList
+        log s!"Now remaining units: {workList}"
+        log s!"Now remaining clauses: {clauses.toList}"
 
         let processedUnits := processedUnits.insert newUnit
-        let workList := additionalUnits ++ workList
         go processedUnits workList clauses
 
 /--
