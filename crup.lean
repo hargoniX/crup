@@ -10,14 +10,16 @@ def Lean.HashSet.pop! [BEq α] [Hashable α] [Inhabited α] (set : HashSet α) :
   -- on singleton sets anyways so it doesn't matter that we iterate over the entire set with fold
   set.fold (init := none) (fun _ lit => some lit) |>.get!
 
-abbrev Clause := HashSet Int
+-- Despite the main operation on Clauses being to check if they contain a unit clause or not, they are usually
+-- so small in memory that the caching effects of Array outweigh the asymptotic performance of HashSet.
+abbrev Clause := Array Int
 -- Since we frequently add and remove elements to the list of clauses this is a List and not an Array
 abbrev Clauses := List Clause
 -- The unit clauses only get added to and we don't care about previous versions
 abbrev UnitClauses := List Int
 
 
-def Clause.toList (c : Clause) : List Int := HashSet.toList c
+def Clause.toList (c : Clause) : List Int := Array.toList c
 def Clauses.toList (cs : Clauses) : List (List Int) := cs.map Clause.toList
 
 def parseLit : Parsec Int := do
@@ -37,14 +39,14 @@ def parseLit : Parsec Int := do
 partial def parseClause : Parsec Clause := do
   go {}
 where
-  go (clause : HashSet Int) : Parsec Clause := do
+  go (clause : Clause) : Parsec Clause := do
     let nextLit ← parseLit
     if nextLit == 0 then
       ws
       return clause
     else
       ws
-      go (clause.insert nextLit)
+      go (clause.push nextLit)
 
 def parseClauses : Parsec Clauses := do
   let clauses ← many parseClause
@@ -121,7 +123,7 @@ deriving Inhabited
 Compute the negation of a `Clause` as a list of `UnitClauses`.
 -/
 def Clause.negation (c : Clause) : UnitClauses :=
-  c.fold (init := []) (fun cs lit => (-lit) :: cs)
+  c.foldl (init := []) (fun cs lit => (-lit) :: cs)
 
 /--
 Split a list of `Clauses` into `UnitClauses` and non unit `Clauses`.
@@ -134,7 +136,7 @@ where
     | [] => (units, others)
     | c :: cs =>
       if c.size == 1 then
-        let lit := c.pop!
+        let lit := c[0]'sorry
         go cs (lit :: units) others
       else
         go cs units (c :: others)
@@ -153,7 +155,7 @@ def unitPropagate (unit : Int) (clauses : Clauses) : LogM (UnitClauses × Clause
     else if clause.contains (-unit) then
       let newClause := clause.erase (-unit)
       if newClause.size == 1 then
-        let lit := newClause.pop!
+        let lit := newClause[0]'sorry
         newUnits := lit :: newUnits
       else
         remainder := newClause :: remainder
