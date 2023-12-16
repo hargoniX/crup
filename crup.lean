@@ -135,8 +135,8 @@ where
     match cs with
     | [] => (units, others)
     | c :: cs =>
-      if c.size == 1 then
-        let lit := c[0]'sorry
+      if h : c.size == 1 then
+        let lit := c[0]'(by simp_all_arith)
         go cs (lit :: units) others
       else
         go cs units (c :: others)
@@ -147,21 +147,23 @@ Propagate a single `unit` clause through a list of `Clauses`, outputting the rem
 -/
 def unitPropagate (unit : Int) (clauses : Clauses) : LogM (UnitClauses × Clauses) := do
   log s!"Propagating {unit} into {clauses.toList}"
-  let mut newUnits := []
-  let mut remainder := []
-  for clause in clauses do
-    if clause.contains unit then
-      pure ()
-    else if clause.contains (-unit) then
-      let newClause := clause.erase (-unit)
-      if newClause.size == 1 then
-        let lit := newClause[0]'sorry
-        newUnits := lit :: newUnits
+  return go clauses [] []
+where
+  go (clauses : Clauses) (newUnits : List Int) (remainder : Clauses) : UnitClauses × Clauses :=
+    match clauses with
+    | [] => (newUnits, remainder)
+    | clause :: clauses =>
+      if clause.contains unit then
+        go clauses newUnits remainder
+      else if clause.contains (-unit) then
+        let newClause := clause.erase (-unit)
+        if h : newClause.size == 1 then
+          let lit := newClause[0]'(by simp_all_arith)
+          go clauses (lit :: newUnits) remainder
+        else
+          go clauses newUnits (newClause :: remainder)
       else
-        remainder := newClause :: remainder
-    else
-      remainder := clause :: remainder
-  return (newUnits, remainder)
+        go clauses newUnits (clause :: remainder)
 
 /--
 Derive False by running `unitPropagate` on a list of `Clauses`.
