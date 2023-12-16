@@ -88,7 +88,7 @@ abbrev LogM (α) := ReaderT LogCfg IO α
 def withAdditionalIndent (additional : Nat) (x : LogM α) : LogM α :=
   withReader (fun cfg => { cfg with indent := cfg.indent + additional }) x
 
-@[inline]
+@[macro_inline]
 def log (x : String) : LogM Unit := do
   let cfg ← read
   if cfg.active then
@@ -149,13 +149,17 @@ def unitPropagate (unit : Int) (clauses : Clauses) : LogM (UnitClauses × Clause
   log s!"Propagating {unit} into {clauses.toList}"
   return go clauses [] []
 where
-  go (clauses : Clauses) (newUnits : List Int) (remainder : Clauses) : UnitClauses × Clauses :=
+  go (clauses : Clauses) (newUnits : UnitClauses) (remainder : Clauses) : UnitClauses × Clauses :=
     match clauses with
-    | [] => (newUnits, remainder)
+    | [] =>
+      -- No clauses that we didn't propagate into yet, we are done
+      (newUnits, remainder)
     | clause :: clauses =>
+      -- Check if the current clause contains unit or -unit or neither, acting accordingly
       if clause.contains unit then
         go clauses newUnits remainder
       else if clause.contains (-unit) then
+        -- We detect new unit clauses on the fly at this point already
         let newClause := clause.erase (-unit)
         if h : newClause.size == 1 then
           let lit := newClause[0]'(by simp_all_arith)
@@ -168,7 +172,7 @@ where
 /--
 Derive False by running `unitPropagate` on a list of `Clauses`.
 -/
-partial def deriveFalse (clauses : Clauses) (initialAssumptions : List Int := []) : LogM Bool := do
+partial def deriveFalse (clauses : Clauses) (initialAssumptions : UnitClauses := []) : LogM Bool := do
   log s!"Attempting to derive inconsistenty for {clauses.toList}"
   let (initialUnits, clauses) := partitionUnitClauses clauses
   go {} (initialAssumptions ++ initialUnits) clauses
